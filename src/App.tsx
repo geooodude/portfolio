@@ -1,12 +1,40 @@
 import React, { Component } from "react";
 
 import Main from "./main";
+// import SeraphimOverlay from "./SeraphimOverlay";
+// import ScanlineInvertLayer from "./ScanlineInvertLayer";
 import './App.css';
 
 const randomFractalParams = (): number[] =>
   Array.from({ length: 6 }, () => Math.random() * 3 - 1.5);
 
 const INITIAL_FRACTAL_PARAMS = randomFractalParams();
+
+/** Per-coefficient procedural motion: unique rates so the shape keeps evolving. */
+const driftPhase = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+const driftW1 = Array.from({ length: 6 }, () => 0.022 + Math.random() * 0.09);
+const driftW2 = Array.from({ length: 6 }, () => 0.031 + Math.random() * 0.11);
+const driftW3 = Array.from({ length: 6 }, () => 0.011 + Math.random() * 0.05);
+const driftAmp = Array.from({ length: 6 }, () => 0.42 + Math.random() * 0.48);
+/** Spreads spectrum-derived pushes so six bands don’t collapse to one value. */
+const bandDetune = [1.22, 0.78, 1.08, 0.92, 1.15, 0.86] as const;
+
+function computeProceduralParams(centers: number[], tMs: number): number[] {
+  const tk = tMs * 0.001;
+  return centers.map((c, i) => {
+    const ph = driftPhase[i];
+    const a = driftAmp[i];
+    const o =
+      Math.sin(tk * driftW1[i] + ph) * 0.5 +
+      Math.cos(tk * driftW2[i] * 1.27 + ph * 2.03) * 0.32 +
+      Math.sin(tk * driftW3[i] + i * 0.9) * 0.18;
+    return c + a * o;
+  });
+}
+
+function clampParam(x: number): number {
+  return Math.max(-2.15, Math.min(2.15, x));
+}
 
 class EscapeFractal extends Component {
   state = {
@@ -25,10 +53,13 @@ class EscapeFractal extends Component {
   animationFrameId: number | null = null;
   prevBass = 0;
   beatEnvelope = 0;
+  /** Slow attractor drift — shape wanders over minutes without running away. */
+  proceduralCenters: number[] = [...INITIAL_FRACTAL_PARAMS];
 
   // ============ LIFECYCLE ============
   
   componentDidMount() {
+    this.proceduralCenters = [...this.state.params];
     this.targetParams = [...this.state.params];
     this.instance = new Main(this.state);
 
@@ -80,6 +111,16 @@ class EscapeFractal extends Component {
       let bass = 0;
       let energy = 0;
       let beatEnv = 0;
+      const tMs = performance.now();
+
+      for (let i = 0; i < 6; i++) {
+        this.proceduralCenters[i] +=
+          Math.sin(tMs * 0.00011 + driftPhase[i] * 3.1) * 0.00055 +
+          Math.cos(tMs * 0.00007 + i * 1.4) * 0.00038;
+        this.proceduralCenters[i] = Math.max(-1.35, Math.min(1.35, this.proceduralCenters[i]));
+      }
+
+      const procedural = computeProceduralParams(this.proceduralCenters, tMs);
 
       if (this.analyser && this.dataArray && this.state.isPlaying) {
         this.analyser.getByteFrequencyData(this.dataArray);
@@ -103,6 +144,7 @@ class EscapeFractal extends Component {
         beatEnv = this.beatEnvelope;
 
         const bandSize = Math.floor(this.dataArray.length / 6);
+        const tk = tMs * 0.001;
         const newTargetParams: number[] = [];
 
         for (let i = 0; i < 6; i++) {
@@ -111,18 +153,22 @@ class EscapeFractal extends Component {
             sum += this.dataArray[j];
           }
           const avg = sum / bandSize / 255;
-          const wobble = (energy + bass * 0.5) * 0.35;
-          newTargetParams.push(avg * (3.6 + wobble) - (1.8 + wobble * 0.25));
+          const centered = (avg - 0.36) * 2.5;
+          const bandPulse =
+            centered * bandDetune[i] * (0.62 + energy * 0.35) +
+            Math.sin(tk * 0.85 + i * 1.33) * 0.11 * energy +
+            Math.sin(tk * 2.1 + bass * 8 + i) * 0.07 * (0.4 + bass);
+          newTargetParams.push(clampParam(procedural[i] + bandPulse));
         }
 
         this.targetParams = newTargetParams;
       } else {
-        this.targetParams = [...this.state.params];
+        this.targetParams = procedural.map(clampParam);
         this.beatEnvelope *= 0.9;
         this.prevBass *= 0.92;
       }
 
-      const smoothingFactor = this.state.isPlaying ? 0.26 : 0.05;
+      const smoothingFactor = this.state.isPlaying ? 0.22 : 0.06;
       const updatedParams = this.state.params.map((param, i) => {
         return param + (this.targetParams[i] - param) * smoothingFactor;
       });
@@ -173,6 +219,8 @@ class EscapeFractal extends Component {
             filter: 'brightness(0.6) contrast(1.8) drop-shadow(3px 3px 6px rgba(0,0,0,0.7)) sepia(0.2)',
           }}
         />
+        {/* <ScanlineInvertLayer /> */}
+        {/* <SeraphimOverlay /> */}
         
         <div style={{
           position: 'absolute',
@@ -180,7 +228,7 @@ class EscapeFractal extends Component {
           left: '2rem',
           display: 'flex',
           gap: '1rem',
-          zIndex: 100,
+          zIndex: 160,
         }}>
           {/* Play/Pause Button */}
           <button
