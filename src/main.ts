@@ -6,8 +6,10 @@ import { mainProps } from './types';
 
 /** Grid density for height sampling; higher = finer relief, more GPU cost. */
 const EMBOSS_SEGMENTS = 256;
-/** World-space Z displacement scale (plane is 2×2 in XY). */
-const EMBOSS_DEPTH = 0.42;
+/** Base relief strength (fragment bump); higher = more Z separation. */
+const EMBOSS_DEPTH = 0.95;
+/** Fractal shader: drawing-buffer pixels per “macro pixel” block. */
+const PIXEL_BLOCK = 5;
 
 export default class Main {
     props: mainProps;
@@ -30,7 +32,14 @@ export default class Main {
         depthScale: { value: number };
         invertDepth: { value: number };
         lightDir: { value: THREE.Vector3 };
+        uCameraPosition: { value: THREE.Vector3 };
+        fractalTexel: { value: THREE.Vector2 };
+        pixelUv: { value: THREE.Vector2 };
+        audioPulse: { value: number };
+        beat: { value: number };
     };
+    audioPulse = 0;
+    beat = 0;
     
     constructor(props: mainProps) {
         this.props = props;
@@ -40,6 +49,7 @@ export default class Main {
             aspect: {type: 'float', value: this.aspect},
             zoom: {type:'float', value: this.zoom},
             offset: {type:'vec2', value: this.offset},
+            pixelSize: { type: 'float', value: PIXEL_BLOCK },
             color_scheme: {type: "int", value: props.color_scheme},
             a: {type:'float', value: props.params[0]},
             b: {type:'float', value: props.params[1]},
@@ -49,7 +59,7 @@ export default class Main {
             f: {type:'float', value: props.params[5]},
         };
 
-        this.render = throttle(this.render.bind(this), 20);
+        this.render = throttle(this.render.bind(this), 1000 / 90);
 
         this.setupScene();
 
@@ -73,7 +83,21 @@ export default class Main {
         this.uniforms.res.value.copy(buf);
         this.uniforms.aspect.value = this.aspect;
         this.fractalTarget.setSize(buf.x, buf.y);
+        this.setFractalTexelUniform(buf.x, buf.y);
+        this.syncPixelUniforms(buf.x, buf.y);
         this.render();
+    }
+
+    setFractalTexelUniform(w: number, h: number) {
+        if (this.displayUniforms) {
+            this.displayUniforms.fractalTexel.value.set(1 / Math.max(1, w), 1 / Math.max(1, h));
+        }
+    }
+
+    syncPixelUniforms(bufW: number, bufH: number) {
+        if (!this.displayUniforms) return;
+        const ps = PIXEL_BLOCK;
+        this.displayUniforms.pixelUv.value.set(ps / Math.max(1, bufW), ps / Math.max(1, bufH));
     }
 
     setupScene() {
@@ -93,8 +117,8 @@ export default class Main {
         this.uniforms.res.value.copy(buf);
 
         this.fractalTarget = new THREE.WebGLRenderTarget(buf.x, buf.y, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
+            minFilter: THREE.NearestFilter,
+            magFilter: THREE.NearestFilter,
             depthBuffer: false,
             stencilBuffer: false,
         });
@@ -107,7 +131,8 @@ export default class Main {
         this.displayCamera.lookAt(0, 0, 0);
 
         this.createFractalMesh();
-        this.createDisplayMesh();
+        this.createDisplayMesh(buf.x, buf.y);
+        this.syncPixelUniforms(buf.x, buf.y);
     }
 
     attachToDOM() {
@@ -132,20 +157,31 @@ export default class Main {
         this.fractalScene.add(this.fractalMesh);
     }
 
-    createDisplayMesh() {
+    createDisplayMesh(fractalW: number, fractalH: number) {
         const geometry = new THREE.PlaneGeometry(2, 2, EMBOSS_SEGMENTS, EMBOSS_SEGMENTS);
         this.displayUniforms = {
             fractalMap: { value: this.fractalTarget.texture },
             depthScale: { value: EMBOSS_DEPTH },
             invertDepth: { value: 0 },
             lightDir: { value: new THREE.Vector3(0.35, 0.55, 0.75).normalize() },
+            uCameraPosition: { value: this.displayCamera.position.clone() },
+            fractalTexel: {
+                value: new THREE.Vector2(1 / Math.max(1, fractalW), 1 / Math.max(1, fractalH)),
+            },
+            pixelUv: {
+                value: new THREE.Vector2(
+                    PIXEL_BLOCK / Math.max(1, fractalW),
+                    PIXEL_BLOCK / Math.max(1, fractalH),
+                ),
+            },
+            audioPulse: { value: 0 },
+            beat: { value: 0 },
         };
         const material = new THREE.ShaderMaterial({
             uniforms: this.displayUniforms,
             vertexShader: EMBOSS_DISPLAY_VERTEX,
             fragmentShader: EMBOSS_DISPLAY_FRAGMENT,
             lights: false,
-            extensions: { derivatives: true },
         });
         this.displayMesh = new THREE.Mesh(geometry, material);
         this.displayScene.add(this.displayMesh);
@@ -190,11 +226,26 @@ export default class Main {
         this.uniforms.f.value = params[5];
     }
 
+    /** Bass / energy 0–1, beat envelope 0–1 (kick emphasis). */
+    updateAudioReactive(bass: number, beatEnv: number, energy: number) {
+        this.audioPulse = Math.min(1, Math.max(0, energy * 1.15 + bass * 0.55));
+        this.beat = Math.min(1, Math.max(0, beatEnv));
+        const zoomPulse = 1 + bass * 0.018 + this.beat * 0.028;
+        this.uniforms.zoom.value = this.zoom * zoomPulse;
+        this.uniforms.offset.value.copy(this.offset);
+        this.displayUniforms.depthScale.value =
+            EMBOSS_DEPTH * (1 + bass * 0.05 + this.beat * 0.08);
+        this.displayUniforms.audioPulse.value = this.audioPulse;
+        this.displayUniforms.beat.value = this.beat;
+    }
+
     updateColors(color_scheme: number) {
         this.uniforms.color_scheme.value = color_scheme;
     }
 
     render() {
+        this.displayUniforms.uCameraPosition.value.copy(this.displayCamera.position);
+
         this.renderer.setRenderTarget(this.fractalTarget);
         this.renderer.render(this.fractalScene, this.fractalCamera);
 

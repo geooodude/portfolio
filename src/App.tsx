@@ -3,10 +3,14 @@ import React, { Component } from "react";
 import Main from "./main";
 import './App.css';
 
+const randomFractalParams = (): number[] =>
+  Array.from({ length: 6 }, () => Math.random() * 3 - 1.5);
+
+const INITIAL_FRACTAL_PARAMS = randomFractalParams();
 
 class EscapeFractal extends Component {
   state = {
-    params: [0, 0, 0, 0, 0, 0],
+    params: [...INITIAL_FRACTAL_PARAMS],
     color_scheme: 0,
     isPlaying: false,
     isMuted: false,
@@ -17,12 +21,15 @@ class EscapeFractal extends Component {
   audioContext: AudioContext | null = null;
   analyser: AnalyserNode | null = null;
   dataArray: Uint8Array | null = null;
-  targetParams: number[] = [0, 0, 0, 0, 0, 0];
+  targetParams: number[] = [...INITIAL_FRACTAL_PARAMS];
   animationFrameId: number | null = null;
+  prevBass = 0;
+  beatEnvelope = 0;
 
   // ============ LIFECYCLE ============
   
   componentDidMount() {
+    this.targetParams = [...this.state.params];
     this.instance = new Main(this.state);
 
     // Initialize audio
@@ -46,7 +53,7 @@ class EscapeFractal extends Component {
   initAudio = () => {
     try {
       this.audioElement = new Audio();
-      this.audioElement.src = require('./assets/yabujin_no_bass.mp3');
+      this.audioElement.src = require('./assets/yabujin.mp3');
       this.audioElement.crossOrigin = "anonymous";
       this.audioElement.volume = 1;
 
@@ -55,7 +62,8 @@ class EscapeFractal extends Component {
       
       const source = audioContext.createMediaElementSource(this.audioElement);
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.5;
       
       source.connect(analyser);
       analyser.connect(audioContext.destination);
@@ -69,33 +77,59 @@ class EscapeFractal extends Component {
 
   startAudioAnimation = () => {
     const animate = () => {
+      let bass = 0;
+      let energy = 0;
+      let beatEnv = 0;
+
       if (this.analyser && this.dataArray && this.state.isPlaying) {
         this.analyser.getByteFrequencyData(this.dataArray);
-        
-        // Get average frequency for each of 6 bands
+
+        const bassBins = 16;
+        let bassSum = 0;
+        for (let j = 0; j < bassBins; j++) {
+          bassSum += this.dataArray[j];
+        }
+        bass = bassSum / (bassBins * 255);
+
+        let total = 0;
+        for (let j = 0; j < this.dataArray.length; j++) {
+          total += this.dataArray[j];
+        }
+        energy = total / (this.dataArray.length * 255);
+
+        const kick = bass > 0.14 && bass > this.prevBass * 1.2 ? 1 : 0;
+        this.prevBass = this.prevBass * 0.85 + bass * 0.15;
+        this.beatEnvelope = Math.min(1, this.beatEnvelope * 0.84 + kick * 0.62);
+        beatEnv = this.beatEnvelope;
+
         const bandSize = Math.floor(this.dataArray.length / 6);
-        const newTargetParams = [];
-        
+        const newTargetParams: number[] = [];
+
         for (let i = 0; i < 6; i++) {
           let sum = 0;
           for (let j = i * bandSize; j < (i + 1) * bandSize; j++) {
             sum += this.dataArray[j];
           }
-          const avg = sum / bandSize / 255; // Normalize to 0-1
-          newTargetParams.push(avg * 3 - 1.5); // Increased scale for more reactivity
+          const avg = sum / bandSize / 255;
+          const wobble = (energy + bass * 0.5) * 0.35;
+          newTargetParams.push(avg * (3.6 + wobble) - (1.8 + wobble * 0.25));
         }
-        
+
         this.targetParams = newTargetParams;
+      } else {
+        this.targetParams = [...this.state.params];
+        this.beatEnvelope *= 0.9;
+        this.prevBass *= 0.92;
       }
 
-      // Slowly animate current params towards target
-      const smoothingFactor = 0.08; // Increased reactivity
+      const smoothingFactor = this.state.isPlaying ? 0.26 : 0.05;
       const updatedParams = this.state.params.map((param, i) => {
         return param + (this.targetParams[i] - param) * smoothingFactor;
       });
 
-      this.setState({params: updatedParams});
+      this.setState({ params: updatedParams });
       this.instance.update(updatedParams);
+      this.instance.updateAudioReactive(bass, beatEnv, energy);
       this.instance.render();
 
       this.animationFrameId = requestAnimationFrame(animate);
