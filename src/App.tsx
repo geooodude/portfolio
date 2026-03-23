@@ -1,6 +1,7 @@
 import React, { Component } from "react";
 
 import Main from "./main";
+import ArabicPoemBanner from "./ArabicPoemBanner";
 // import SeraphimOverlay from "./SeraphimOverlay";
 // import ScanlineInvertLayer from "./ScanlineInvertLayer";
 import './App.css';
@@ -84,7 +85,7 @@ class EscapeFractal extends Component {
   initAudio = () => {
     try {
       this.audioElement = new Audio();
-      this.audioElement.src = require('./assets/yabujin.mp3');
+      this.audioElement.src = require('./assets/che.mp3');
       this.audioElement.crossOrigin = "anonymous";
       this.audioElement.volume = 1;
 
@@ -219,6 +220,7 @@ class EscapeFractal extends Component {
             filter: 'brightness(0.6) contrast(1.8) drop-shadow(3px 3px 6px rgba(0,0,0,0.7)) sepia(0.2)',
           }}
         />
+        <ArabicPoemBanner />
         {/* <ScanlineInvertLayer /> */}
         {/* <SeraphimOverlay /> */}
         

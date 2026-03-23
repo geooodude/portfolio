@@ -25,7 +25,24 @@ button {
   margin-bottom: 2%;
 }
 
-canvas {
+#canvas canvas {
   width: 100vw;
   height: 100vh;
+}
+
+@keyframes arabic-poem-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.arabic-poem-marquee-layer {
+  display: block;
+  animation: arabic-poem-marquee linear infinite;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  will-change: transform;
 }
