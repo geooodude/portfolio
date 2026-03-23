@@ -2,8 +2,8 @@ import React, { Component } from "react";
 
 import Main from "./main";
 import ArabicPoemBanner from "./ArabicPoemBanner";
-// import SeraphimOverlay from "./SeraphimOverlay";
-// import ScanlineInvertLayer from "./ScanlineInvertLayer";
+import SeraphimOverlay from "./SeraphimOverlay";
+import ScanlineInvertLayer from "./ScanlineInvertLayer";
 import './App.css';
 
 const randomFractalParams = (): number[] =>
@@ -40,7 +40,7 @@ function clampParam(x: number): number {
 class EscapeFractal extends Component {
   state = {
     params: [...INITIAL_FRACTAL_PARAMS],
-    color_scheme: 0,
+    color_scheme: 1,
     isPlaying: false,
     isMuted: false,
   };
@@ -48,6 +48,8 @@ class EscapeFractal extends Component {
   instance: Main;
   audioElement: HTMLAudioElement | null = null;
   audioContext: AudioContext | null = null;
+  /** Output gain to destination — element.muted does not affect Web Audio graph. */
+  masterGain: GainNode | null = null;
   analyser: AnalyserNode | null = null;
   dataArray: Uint8Array | null = null;
   targetParams: number[] = [...INITIAL_FRACTAL_PARAMS];
@@ -63,6 +65,9 @@ class EscapeFractal extends Component {
     this.proceduralCenters = [...this.state.params];
     this.targetParams = [...this.state.params];
     this.instance = new Main(this.state);
+    this.instance.updateColors(this.state.color_scheme);
+
+    window.addEventListener('keydown', this.onKeyDown);
 
     // Initialize audio
     this.initAudio();
@@ -70,6 +75,7 @@ class EscapeFractal extends Component {
   }
 
   componentWillUnmount() {
+    window.removeEventListener('keydown', this.onKeyDown);
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
     }
@@ -85,9 +91,10 @@ class EscapeFractal extends Component {
   initAudio = () => {
     try {
       this.audioElement = new Audio();
-      this.audioElement.src = require('./assets/che.mp3');
+      this.audioElement.src = require('./assets/yabujin.mp3');
       this.audioElement.crossOrigin = "anonymous";
       this.audioElement.volume = 1;
+      this.audioElement.loop = true;
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       this.audioContext = audioContext;
@@ -96,9 +103,14 @@ class EscapeFractal extends Component {
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 512;
       analyser.smoothingTimeConstant = 0.5;
-      
+
+      const masterGain = audioContext.createGain();
+      masterGain.gain.value = this.state.isMuted ? 0 : 1;
+      this.masterGain = masterGain;
+
       source.connect(analyser);
-      analyser.connect(audioContext.destination);
+      analyser.connect(masterGain);
+      masterGain.connect(audioContext.destination);
       
       this.analyser = analyser;
       this.dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -201,11 +213,28 @@ class EscapeFractal extends Component {
   }
 
   toggleMute = () => {
-    if (!this.audioElement) return;
-    
+    if (!this.masterGain || !this.audioContext) return;
+
     const newMutedState = !this.state.isMuted;
-    this.audioElement.muted = newMutedState;
-    this.setState({isMuted: newMutedState});
+    const g = this.masterGain.gain;
+    const t = this.audioContext.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(newMutedState ? 0 : 1, t);
+    this.setState({ isMuted: newMutedState });
+  }
+
+  onKeyDown = (e: KeyboardEvent) => {
+    const keyNum = Number(e.key);
+    if (!Number.isInteger(keyNum) || keyNum < 1 || keyNum > 8) return;
+
+    if (this.state.color_scheme === keyNum) return;
+
+    this.setState({ color_scheme: keyNum }, () => {
+      if (this.instance) {
+        this.instance.updateColors(keyNum);
+        this.instance.render();
+      }
+    });
   }
 
   render() {
@@ -217,10 +246,10 @@ class EscapeFractal extends Component {
           className="canvas-wrapper"
           id="canvas"
           style={{
-            filter: 'brightness(0.6) contrast(1.8) drop-shadow(3px 3px 6px rgba(0,0,0,0.7)) sepia(0.2)',
+            filter: 'brightness(1.0) contrast(2.5) drop-shadow(3px 3px 6px rgba(0,0,0,0.7)) sepia(0.2)',
           }}
         />
-        <ArabicPoemBanner />
+        {/* <ArabicPoemBanner /> */}
         {/* <ScanlineInvertLayer /> */}
         {/* <SeraphimOverlay /> */}
         
@@ -274,17 +303,10 @@ class EscapeFractal extends Component {
               transition: 'all 0.3s ease',
               boxShadow: '0 0 0 rgba(67, 62, 82, 0)',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 15px rgba(67, 62, 82, 0.8)';
-              e.currentTarget.style.backgroundColor = '#5a525e';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 0 rgba(67, 62, 82, 0)';
-              e.currentTarget.style.backgroundColor = '#433E52';
-            }}
           >
             {isMuted ? 'UNMUTE' : 'MUTE'}
           </button>
+
         </div>
       </>
     );

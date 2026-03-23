@@ -12,6 +12,92 @@ void main() {
 }
 `;
 
+/** Fullscreen quad for odd–even luminance sort (ping-pong between render targets). */
+export const SORT_PASS_VERTEX = `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const SORT_PASS_FRAGMENT = `
+precision highp float;
+
+uniform sampler2D tInput;
+uniform sampler2D tDirection;
+uniform vec2 uResolution;
+uniform float uPhase;
+uniform float uThreshold;
+
+varying vec2 vUv;
+
+vec4 fetchPix(ivec2 c) {
+  vec2 res = uResolution;
+  vec2 uv = (vec2(c) + vec2(0.5)) / res;
+  uv = clamp(uv, vec2(0.5) / res, vec2(1.0) - vec2(0.5) / res);
+  return texture2D(tInput, uv);
+}
+
+float lum(vec4 c) {
+  return dot(c.rgb, vec3(0.299, 0.587, 0.114));
+}
+
+void main() {
+  vec2 resf = uResolution;
+  ivec2 res = ivec2(int(floor(resf.x + 0.5)), int(floor(resf.y + 0.5)));
+  ivec2 pix = ivec2(int(floor(vUv.x * resf.x)), int(floor(vUv.y * resf.y)));
+  pix.x = clamp(pix.x, 0, res.x - 1);
+  pix.y = clamp(pix.y, 0, res.y - 1);
+
+  vec2 duv = (vec2(pix) + vec2(0.5)) / resf;
+  vec2 dir = texture2D(tDirection, duv).rg * 2.0 - vec2(1.0);
+  bool horiz = abs(dir.x) >= abs(dir.y);
+
+  bool evenPhase = mod(uPhase, 2.0) < 1.0;
+
+  ivec2 nei;
+  if (horiz) {
+    int x = pix.x;
+    int nx = evenPhase
+      ? (((x & 1) == 0) ? x + 1 : x - 1)
+      : (((x & 1) != 0) ? x + 1 : x - 1);
+    nei = ivec2(nx, pix.y);
+  } else {
+    int y = pix.y;
+    int ny = evenPhase
+      ? (((y & 1) == 0) ? y + 1 : y - 1)
+      : (((y & 1) != 0) ? y + 1 : y - 1);
+    nei = ivec2(pix.x, ny);
+  }
+
+  if (nei.x < 0 || nei.x >= res.x || nei.y < 0 || nei.y >= res.y) {
+    gl_FragColor = fetchPix(pix);
+    return;
+  }
+
+  vec4 a = fetchPix(pix);
+  vec4 b = fetchPix(nei);
+  float la = lum(a);
+  float lb = lum(b);
+
+  if (la < uThreshold || lb < uThreshold) {
+    gl_FragColor = a;
+    return;
+  }
+
+  bool first = horiz
+    ? (min(pix.x, nei.x) == pix.x)
+    : (min(pix.y, nei.y) == pix.y);
+
+  if (la <= lb) {
+    gl_FragColor = first ? a : b;
+  } else {
+    gl_FragColor = first ? b : a;
+  }
+}
+`;
+
 export const EMBOSS_DISPLAY_FRAGMENT = `
 precision highp float;
 
@@ -307,6 +393,191 @@ vec4 custom_colormap_3(float s) {
   return vec4(color, 1.0);
 }
 
+vec4 custom_colormap_4(float s) {
+  vec3 color_1 = vec3(0.1, 0.1, 0.2);
+  vec3 color_2 = vec3(0.12, 0.23, 0.48);
+  vec3 color_3 = vec3(0.2, 0.4, 0.75);
+  vec3 color_4 = vec3(0.28, 0.57, 0.9);
+  vec3 color_5 = vec3(0.38, 0.72, 0.95);
+  vec3 color_6 = vec3(0.57, 0.84, 0.98);
+  vec3 color_7 = vec3(0.76, 0.92, 0.99);
+  vec3 color_8 = vec3(0.95, 0.98, 1.0);
+
+  vec3 color;
+  if (s < 0.143) {
+    float x = 7.0 * s;
+    color = mix(color_1, color_2, x);
+  } else if (s < 0.286) {
+    float x = 7.0 * (s - 0.143);
+    color = mix(color_2, color_3, x);
+  } else if (s < 0.423) {
+    float x = 7.0 * (s - 0.286);
+    color = mix(color_3, color_4, x);
+  } else if (s < 0.571) {
+    float x = 7.0 * (s - 0.423);
+    color = mix(color_4, color_5, x);
+  } else if (s < 0.714) {
+    float x = 7.0 * (s - 0.571);
+    color = mix(color_5, color_6, x);
+  } else if (s < 0.857) {
+    float x = 7.0 * (s - 0.714);
+    color = mix(color_6, color_7, x);
+  } else {
+    float x = 7.0 * (s - 0.857);
+    color = mix(color_7, color_8, x);
+  }
+
+  return vec4(color, 1.0);
+}
+
+vec4 custom_colormap_5(float s) {
+  vec3 color_1 = vec3(0.2, 0.05, 0.1);
+  vec3 color_2 = vec3(0.4, 0.1, 0.25);
+  vec3 color_3 = vec3(0.62, 0.16, 0.4);
+  vec3 color_4 = vec3(0.78, 0.24, 0.58);
+  vec3 color_5 = vec3(0.89, 0.36, 0.7);
+  vec3 color_6 = vec3(0.94, 0.5, 0.84);
+  vec3 color_7 = vec3(0.97, 0.68, 0.91);
+  vec3 color_8 = vec3(0.99, 0.85, 0.98);
+
+  vec3 color;
+  if (s < 0.143) {
+    float x = 7.0 * s;
+    color = mix(color_1, color_2, x);
+  } else if (s < 0.286) {
+    float x = 7.0 * (s - 0.143);
+    color = mix(color_2, color_3, x);
+  } else if (s < 0.423) {
+    float x = 7.0 * (s - 0.286);
+    color = mix(color_3, color_4, x);
+  } else if (s < 0.571) {
+    float x = 7.0 * (s - 0.423);
+    color = mix(color_4, color_5, x);
+  } else if (s < 0.714) {
+    float x = 7.0 * (s - 0.571);
+    color = mix(color_5, color_6, x);
+  } else if (s < 0.857) {
+    float x = 7.0 * (s - 0.714);
+    color = mix(color_6, color_7, x);
+  } else {
+    float x = 7.0 * (s - 0.857);
+    color = mix(color_7, color_8, x);
+  }
+
+  return vec4(color, 1.0);
+}
+
+vec4 custom_colormap_6(float s) {
+  vec3 color_1 = vec3(0.05, 0.1, 0.05);
+  vec3 color_2 = vec3(0.1, 0.25, 0.1);
+  vec3 color_3 = vec3(0.2, 0.5, 0.2);
+  vec3 color_4 = vec3(0.3, 0.7, 0.3);
+  vec3 color_5 = vec3(0.4, 0.8, 0.4);
+  vec3 color_6 = vec3(0.6, 0.9, 0.6);
+  vec3 color_7 = vec3(0.8, 0.95, 0.8);
+  vec3 color_8 = vec3(0.95, 1.0, 0.95);
+
+  vec3 color;
+  if (s < 0.143) {
+    float x = 7.0 * s;
+    color = mix(color_1, color_2, x);
+  } else if (s < 0.286) {
+    float x = 7.0 * (s - 0.143);
+    color = mix(color_2, color_3, x);
+  } else if (s < 0.423) {
+    float x = 7.0 * (s - 0.286);
+    color = mix(color_3, color_4, x);
+  } else if (s < 0.571) {
+    float x = 7.0 * (s - 0.423);
+    color = mix(color_4, color_5, x);
+  } else if (s < 0.714) {
+    float x = 7.0 * (s - 0.571);
+    color = mix(color_5, color_6, x);
+  } else if (s < 0.857) {
+    float x = 7.0 * (s - 0.714);
+    color = mix(color_6, color_7, x);
+  } else {
+    float x = 7.0 * (s - 0.857);
+    color = mix(color_7, color_8, x);
+  }
+
+  return vec4(color, 1.0);
+}
+
+vec4 custom_colormap_7(float s) {
+  vec3 color_1 = vec3(0.1, 0.08, 0.0);
+  vec3 color_2 = vec3(0.3, 0.2, 0.0);
+  vec3 color_3 = vec3(0.6, 0.4, 0.1);
+  vec3 color_4 = vec3(0.8, 0.6, 0.2);
+  vec3 color_5 = vec3(0.9, 0.75, 0.3);
+  vec3 color_6 = vec3(0.95, 0.85, 0.5);
+  vec3 color_7 = vec3(0.98, 0.92, 0.7);
+  vec3 color_8 = vec3(1.0, 0.98, 0.9);
+
+  vec3 color;
+  if (s < 0.143) {
+    float x = 7.0 * s;
+    color = mix(color_1, color_2, x);
+  } else if (s < 0.286) {
+    float x = 7.0 * (s - 0.143);
+    color = mix(color_2, color_3, x);
+  } else if (s < 0.423) {
+    float x = 7.0 * (s - 0.286);
+    color = mix(color_3, color_4, x);
+  } else if (s < 0.571) {
+    float x = 7.0 * (s - 0.423);
+    color = mix(color_4, color_5, x);
+  } else if (s < 0.714) {
+    float x = 7.0 * (s - 0.571);
+    color = mix(color_5, color_6, x);
+  } else if (s < 0.857) {
+    float x = 7.0 * (s - 0.714);
+    color = mix(color_6, color_7, x);
+  } else {
+    float x = 7.0 * (s - 0.857);
+    color = mix(color_7, color_8, x);
+  }
+
+  return vec4(color, 1.0);
+}
+
+vec4 custom_colormap_8(float s) {
+  vec3 color_1 = vec3(0.1, 0.0, 0.1);
+  vec3 color_2 = vec3(0.2, 0.0, 0.3);
+  vec3 color_3 = vec3(0.4, 0.1, 0.5);
+  vec3 color_4 = vec3(0.6, 0.2, 0.7);
+  vec3 color_5 = vec3(0.7, 0.3, 0.8);
+  vec3 color_6 = vec3(0.8, 0.4, 0.9);
+  vec3 color_7 = vec3(0.9, 0.6, 0.95);
+  vec3 color_8 = vec3(0.95, 0.8, 1.0);
+
+  vec3 color;
+  if (s < 0.143) {
+    float x = 7.0 * s;
+    color = mix(color_1, color_2, x);
+  } else if (s < 0.286) {
+    float x = 7.0 * (s - 0.143);
+    color = mix(color_2, color_3, x);
+  } else if (s < 0.423) {
+    float x = 7.0 * (s - 0.286);
+    color = mix(color_3, color_4, x);
+  } else if (s < 0.571) {
+    float x = 7.0 * (s - 0.423);
+    color = mix(color_4, color_5, x);
+  } else if (s < 0.714) {
+    float x = 7.0 * (s - 0.571);
+    color = mix(color_5, color_6, x);
+  } else if (s < 0.857) {
+    float x = 7.0 * (s - 0.714);
+    color = mix(color_6, color_7, x);
+  } else {
+    float x = 7.0 * (s - 0.857);
+    color = mix(color_7, color_8, x);
+  }
+
+  return vec4(color, 1.0);
+}
+
 // ============
 // === MAIN ===
 // ============
@@ -373,17 +644,31 @@ void main(){
       gl_FragColor = basic_colormap(s, shade);
     }
     else if (color_scheme == 1) {
-      vec3 shade = vec3(7.0, 3.0, 2.0);
-      gl_FragColor = basic_colormap(s, shade);
-    }
-    else if (color_scheme == 2) {
       gl_FragColor = custom_colormap_1(pow(s, 6.0));
     }
-    else if (color_scheme == 3) {
+    else if (color_scheme == 2) {
       gl_FragColor = custom_colormap_2(pow(s, 6.0));
     }
-    else {
+    else if (color_scheme == 3) {
       gl_FragColor = custom_colormap_3(pow(s, 6.0));
+    }
+    else if (color_scheme == 4) {
+      gl_FragColor = custom_colormap_4(pow(s, 6.0));
+    }
+    else if (color_scheme == 5) {
+      gl_FragColor = custom_colormap_5(pow(s, 6.0));
+    }
+    else if (color_scheme == 6) {
+      gl_FragColor = custom_colormap_6(pow(s, 6.0));
+    }
+    else if (color_scheme == 7) {
+      gl_FragColor = custom_colormap_7(pow(s, 6.0));
+    }
+    else if (color_scheme == 8) {
+      gl_FragColor = custom_colormap_8(pow(s, 6.0));
+    }
+    else {
+      gl_FragColor = basic_colormap(s, vec3(7.0, 3.0, 2.0));
     }
 }
 `
