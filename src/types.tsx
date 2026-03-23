@@ -15,7 +15,6 @@ type controlsState = {
 type mainProps = {
     params: number[];
     color_scheme: number;
-    colors_inverted: number;
 }
 
 export { type controlsProps, type mainProps, type controlsState }

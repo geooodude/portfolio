@@ -1,3 +1,46 @@
+/** Renders fractal to texture; second pass displaces plane by luma (see Main). */
+export const EMBOSS_DISPLAY_VERTEX = `
+varying vec2 vUv;
+varying vec3 vWorldPos;
+
+uniform sampler2D fractalMap;
+uniform float depthScale;
+uniform float invertDepth;
+
+void main() {
+  vUv = uv;
+  vec4 c = texture2D(fractalMap, uv);
+  float luma = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+  if (invertDepth > 0.5) luma = 1.0 - luma;
+  vec3 pos = position;
+  pos.z += luma * depthScale;
+  vec4 wp = modelMatrix * vec4(pos, 1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+
+export const EMBOSS_DISPLAY_FRAGMENT = `
+precision highp float;
+
+uniform sampler2D fractalMap;
+uniform vec3 lightDir;
+
+varying vec2 vUv;
+varying vec3 vWorldPos;
+
+void main() {
+  vec3 du = dFdx(vWorldPos);
+  vec3 dv = dFdy(vWorldPos);
+  vec3 n = normalize(cross(du, dv));
+  vec3 alb = texture2D(fractalMap, vUv).rgb;
+  vec3 L = normalize(lightDir);
+  float diff = max(dot(n, L), 0.0);
+  vec3 lit = alb * (0.38 + 0.62 * diff);
+  gl_FragColor = vec4(lit, 1.0);
+}
+`;
+
 export const FRAGMENT_SHADER = 
 `
 precision highp float;
@@ -11,7 +54,6 @@ uniform float aspect;
 uniform float zoom;
 uniform vec2 offset;
 uniform int color_scheme;
-uniform float inverted; // either 0.0 or 1.0
 
 // ======================
 // === GUI PARAMETERS ===
@@ -41,17 +83,9 @@ vec2 conj (vec2 a) {
 // =====================
 
 /// s: always between 0.0 and 1.0
-/// inverted: either 0.0 or 1.0
-vec4 basic_colormap(float s, vec3 shade, float inverted) {
+vec4 basic_colormap(float s, vec3 shade) {
   vec3 coord = vec3(s, s, s);
-
-  // note: 'flat' logic, could maybe just do branching logic
-  // since it shouldn't be much of a performance hit
-  if (inverted > 0.0) {
-    return vec4(pow(vec3(1.0, 1.0, 1.0) - coord, 0.07*shade), 1.0);
-  } else {
-    return vec4(pow(coord, shade), 1.0);
-  }
+  return vec4(pow(coord, shade), 1.0);
 }
 
 vec4 custom_colormap_1(float s) {
@@ -245,28 +279,23 @@ void main(){
     vec2 uv = zoom * vec2(aspect, 1.0) * gl_FragCoord.xy / res + offset;
     float s = 1.0 - mandelbrot(uv);
 
-    /// note for anyone looking at this
-    /// inverted takes a value of either 0.0 or 1.0
-    /// inverted + (1 - 2*inverted) * X evaluates to = X when inverted = 0
-    /// and evaluates to = 1 - X when inverted = 1
-    /// it's basically a "boolean" but done with math instead
 
     if (color_scheme == 0) {
       vec3 shade = vec3(5.38, 6.15, 3.85);
-      gl_FragColor = basic_colormap(s, shade, inverted);
+      gl_FragColor = basic_colormap(s, shade);
     }
     else if (color_scheme == 1) {
       vec3 shade = vec3(7.0, 3.0, 2.0);
-      gl_FragColor = basic_colormap(s, shade, inverted);
+      gl_FragColor = basic_colormap(s, shade);
     }
     else if (color_scheme == 2) {
-      gl_FragColor = custom_colormap_1(inverted + (1.0 - 2.0*inverted)*pow(s, 6.0));
+      gl_FragColor = custom_colormap_1(pow(s, 6.0));
     }
     else if (color_scheme == 3) {
-      gl_FragColor = custom_colormap_2(inverted + (1.0 - 2.0*inverted)*pow(s, 6.0));
+      gl_FragColor = custom_colormap_2(pow(s, 6.0));
     }
     else {
-      gl_FragColor = custom_colormap_3(inverted + (1.0 - 2.0*inverted)*pow(s, 6.0));
+      gl_FragColor = custom_colormap_3(pow(s, 6.0));
     }
 }
 `
