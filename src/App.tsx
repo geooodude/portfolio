@@ -40,9 +40,10 @@ function clampParam(x: number): number {
 class EscapeFractal extends Component {
   state = {
     params: [...INITIAL_FRACTAL_PARAMS],
-    color_scheme: 1,
+    color_scheme: 3,
     isPlaying: false,
     isMuted: false,
+    showControls: false,
   };
 
   instance: Main;
@@ -58,6 +59,8 @@ class EscapeFractal extends Component {
   beatEnvelope = 0;
   /** Slow attractor drift — shape wanders over minutes without running away. */
   proceduralCenters: number[] = [...INITIAL_FRACTAL_PARAMS];
+  muteAnimationStart: number | null = null;
+  muteAnimationDuration = 500; // ms
 
   // ============ LIFECYCLE ============
   
@@ -68,6 +71,7 @@ class EscapeFractal extends Component {
     this.instance.updateColors(this.state.color_scheme);
 
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
 
     // Initialize audio
     this.initAudio();
@@ -76,6 +80,7 @@ class EscapeFractal extends Component {
 
   componentWillUnmount() {
     window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
     }
@@ -186,6 +191,23 @@ class EscapeFractal extends Component {
         return param + (this.targetParams[i] - param) * smoothingFactor;
       });
 
+      // Handle mute animation
+      if (this.muteAnimationStart !== null) {
+        const elapsed = tMs - this.muteAnimationStart;
+        const progress = Math.min(1, elapsed / this.muteAnimationDuration);
+        const targetGrayscale = this.state.isMuted ? 1 : 0;
+        const currentGrayscale = this.state.isMuted ? progress : 1 - progress;
+        this.instance.setGrayscaleFactor(currentGrayscale);
+
+        if (progress >= 1) {
+          this.muteAnimationStart = null;
+          this.instance.setGrayscaleFactor(targetGrayscale);
+        }
+      } else {
+        // Keep grayscale at target state when not animating
+        this.instance.setGrayscaleFactor(this.state.isMuted ? 1 : 0);
+      }
+
       this.setState({ params: updatedParams });
       this.instance.update(updatedParams);
       this.instance.updateAudioReactive(bass, beatEnv, energy);
@@ -221,11 +243,30 @@ class EscapeFractal extends Component {
     g.cancelScheduledValues(t);
     g.setValueAtTime(newMutedState ? 0 : 1, t);
     this.setState({ isMuted: newMutedState });
+    this.muteAnimationStart = performance.now();
   }
 
   onKeyDown = (e: KeyboardEvent) => {
     const keyNum = Number(e.key);
-    if (!Number.isInteger(keyNum) || keyNum < 1 || keyNum > 8) return;
+    if (!Number.isInteger(keyNum) || keyNum < 1 || keyNum > 8) {
+      // Handle non-numeric keys
+      if (e.key === ' ') {
+        e.preventDefault();
+        this.togglePlayPause();
+        return;
+      }
+      if (e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        this.toggleMute();
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        this.setState({ showControls: true });
+        return;
+      }
+      return;
+    }
 
     if (this.state.color_scheme === keyNum) return;
 
@@ -237,8 +278,14 @@ class EscapeFractal extends Component {
     });
   }
 
+  onKeyUp = (e: KeyboardEvent) => {
+    if (e.key === 'Tab') {
+      this.setState({ showControls: false });
+    }
+  }
+
   render() {
-    const { isPlaying, isMuted } = this.state;
+    const { isPlaying, isMuted, showControls } = this.state;
 
     return (
       <>
@@ -253,61 +300,30 @@ class EscapeFractal extends Component {
         {/* <ScanlineInvertLayer /> */}
         {/* <SeraphimOverlay /> */}
         
-        <div style={{
-          position: 'absolute',
-          bottom: '2rem',
-          left: '2rem',
-          display: 'flex',
-          gap: '1rem',
-          zIndex: 160,
-        }}>
-          {/* Play/Pause Button */}
-          <button
-            onClick={this.togglePlayPause}
-            style={{
-              backgroundColor: '#433E52',
-              border: 'none',
-              borderRadius: '0.5rem',
-              padding: '0.8rem 1.2rem',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              color: 'white',
-              transition: 'all 0.3s ease',
-              boxShadow: '0 0 0 rgba(67, 62, 82, 0)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 15px rgba(67, 62, 82, 0.8)';
-              e.currentTarget.style.backgroundColor = '#5a525e';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 0 rgba(67, 62, 82, 0)';
-              e.currentTarget.style.backgroundColor = '#433E52';
-            }}
-          >
-            {isPlaying ? 'PAUSE' : 'PLAY'}
-          </button>
-
-          {/* Mute Button */}
-          <button
-            onClick={this.toggleMute}
-            style={{
-              backgroundColor: '#433E52',
-              border: 'none',
-              borderRadius: '0.5rem',
-              padding: '0.8rem 1.2rem',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              color: 'white',
-              transition: 'all 0.3s ease',
-              boxShadow: '0 0 0 rgba(67, 62, 82, 0)',
-            }}
-          >
-            {isMuted ? 'UNMUTE' : 'MUTE'}
-          </button>
-
-        </div>
+        {showControls && (
+          <div style={{
+            position: 'absolute',
+            top: '2rem',
+            left: '2rem',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '1rem',
+            borderRadius: '0.5rem',
+            fontFamily: 'monospace',
+            fontSize: '0.9rem',
+            zIndex: 200,
+            maxWidth: '400px',
+          }}>
+            <div style={{ marginBottom: '0.5rem', fontWeight: 'bold' }}>controls</div>
+            <div>space - {isPlaying ? 'pause' : 'play'} audio</div>
+            <div>m - {isMuted ? 'unmute' : 'mute'} audio</div>
+            <div>1-8 - change color scheme</div>
+            <div>mouse drag - pan around</div>
+            <div>mouse wheel - zoom in/out</div>
+            <div>double click - reset view</div>
+            <div>tab - show/hide this overlay</div>
+          </div>
+        )}
       </>
     );
   }
