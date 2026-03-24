@@ -68,6 +68,7 @@ export default class Main {
         pixelUv: { value: THREE.Vector2 };
         audioPulse: { value: number };
         beat: { value: number };
+        grayscaleFactor: { value: number };
     };
     audioPulse = 0;
     beat = 0;
@@ -250,6 +251,7 @@ export default class Main {
             },
             audioPulse: { value: 0 },
             beat: { value: 0 },
+            grayscaleFactor: { value: 0 },
         };
         const material = new THREE.ShaderMaterial({
             uniforms: this.displayUniforms,
@@ -368,6 +370,10 @@ export default class Main {
 
     updateColors(color_scheme: number) {
         this.uniforms.color_scheme.value = color_scheme;
+    }
+
+    setGrayscaleFactor(factor: number) {
+        this.displayUniforms.grayscaleFactor.value = Math.max(0, Math.min(1, factor));
     }
 
     render() {

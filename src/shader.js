@@ -110,6 +110,7 @@ uniform float depthScale;
 uniform float invertDepth;
 uniform float audioPulse;
 uniform float beat;
+uniform float grayscaleFactor;
 
 varying vec2 vUv;
 varying vec3 vWorldPos;
@@ -208,6 +209,9 @@ void main() {
 
   float grain = fract(sin(dot(fc + vec2(19.1, 47.3), vec2(12.9898, 78.233))) * 43758.5453);
   lit += (grain - 0.5) * 0.055;
+
+  vec3 gray = vec3(dot(lit, vec3(0.299, 0.587, 0.114)));
+  lit = mix(lit, gray, grayscaleFactor);
 
   gl_FragColor = vec4(clamp(lit, 0.0, 1.0), 1.0);
 }
